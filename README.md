@@ -19,9 +19,9 @@ Quick Workflow
 6. Monitor self-healer CronJob in each cluster.
 
 Contents
-- `terraform/` — infra code for EKS (terraform-aws-modules recommended) and AKS (azurerm).
-- `k8s/` — manifests for nginx:stable deployment + HPA + self-healer CronJob.
-- `jenkins/` — Jenkinsfile for CI/CD.
+- `terraform/` : infra code for EKS (terraform-aws-modules recommended) and AKS (azurerm).
+- `k8s/` : manifests for nginx:stable deployment + HPA + self-healer CronJob.
+- `jenkins/` : Jenkinsfile for CI/CD.
 
 Notes on self-healing design
 - Uses native Kubernetes features (liveness/readiness probes, HPA, PDB).

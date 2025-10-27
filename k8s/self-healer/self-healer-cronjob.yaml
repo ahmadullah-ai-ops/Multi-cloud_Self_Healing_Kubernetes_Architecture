@@ -1,0 +1,37 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: self-healer
+  namespace: demo-app
+spec:
+  schedule: "*/5 * * * *" # run every 5 minutes
+  concurrencyPolicy: Forbid
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          serviceAccountName: default
+          containers:
+            - name: self-healer
+              image: bitnami/kubectl:latest
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  cat <<'SCRIPT' > /tmp/check_and_repair.sh
+                  #!/bin/sh
+                  NAMESPACE=demo-app
+                  DEPLOYMENT=nginx-demo
+                  NOT_READY=$(kubectl get pods -n ${NAMESPACE} -l app=${DEPLOYMENT} -o jsonpath='{.items[*].status.conditions[?(@.type=="Ready")].status}' | grep -c "False" || true)
+                  if [ -n "$NOT_READY" ] && [ "$NOT_READY" -gt 0 ]; then
+                    echo "[self-healer] Found ${NOT_READY} not-ready pods. Rolling restart deployment ${DEPLOYMENT}"
+                    kubectl -n ${NAMESPACE} rollout restart deploy ${DEPLOYMENT}
+                    sleep 20
+                    kubectl -n ${NAMESPACE} rollout status deploy ${DEPLOYMENT} --timeout=120s || echo "[self-healer] Rollout did not converge"
+                  else
+                    echo "[self-healer] All pods are ready"
+                  fi
+                  SCRIPT
+                  chmod +x /tmp/check_and_repair.sh
+                  /tmp/check_and_repair.sh
+          restartPolicy: OnFailure

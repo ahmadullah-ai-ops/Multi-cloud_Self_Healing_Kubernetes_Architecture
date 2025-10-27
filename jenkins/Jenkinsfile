@@ -1,0 +1,101 @@
+pipeline {
+  agent any
+
+  environment {
+    TF_DIR = "terraform"
+    K8S_MANIFEST_DIR = "k8s/base"
+    SELF_HEALER_DIR = "k8s/self-healer"
+    AWS_REGION = "${env.AWS_REGION ?: 'us-east-1'}"
+  }
+
+  stages {
+    stage('Checkout') {
+      steps { checkout scm }
+    }
+
+    stage('Terraform Init') {
+      steps {
+        dir("${TF_DIR}") {
+          sh 'terraform init -input=false'
+        }
+      }
+    }
+
+    stage('Terraform Apply (Plan + Apply)') {
+      steps {
+        dir("${TF_DIR}") {
+          sh '''
+            terraform plan -out=tfplan -input=false
+            terraform apply -input=false -auto-approve tfplan
+          '''
+        }
+      }
+    }
+
+    stage('Get kubeconfigs') {
+      steps {
+        // the terraform outputs should be used to fetch kubeconfigs and store them as Jenkins credentials.
+        // example: write kubeconfigs to workspace from terraform outputs or vault.
+        echo "Ensure kubeconfigs for EKS and AKS are available as Jenkins credentials: eks_kubeconfig, aks_kubeconfig"
+      }
+    }
+
+    stage('Deploy to EKS') {
+      steps {
+        // expects environment variables or credentials named EKS_KUBECONFIG
+        withCredentials([file(credentialsId: 'eks_kubeconfig', variable: 'EKS_KUBECONFIG')]) {
+          sh '''
+            export KUBECONFIG=$EKS_KUBECONFIG
+            kubectl apply -f ${K8S_MANIFEST_DIR}/namespace.yaml
+            kubectl apply -f ${K8S_MANIFEST_DIR}/deployment.yaml
+            kubectl apply -f ${K8S_MANIFEST_DIR}/service.yaml
+            kubectl apply -f ${K8S_MANIFEST_DIR}/hpa.yaml
+            kubectl apply -f ${K8S_MANIFEST_DIR}/pdb.yaml
+            kubectl apply -f ${SELF_HEALER_DIR}/self-healer-cronjob.yaml
+            kubectl -n demo-app rollout status deploy/nginx-demo --timeout=120s
+          '''
+        }
+      }
+    }
+
+    stage('Deploy to AKS') {
+      steps {
+        withCredentials([file(credentialsId: 'aks_kubeconfig', variable: 'AKS_KUBECONFIG')]) {
+          sh '''
+            export KUBECONFIG=$AKS_KUBECONFIG
+            kubectl apply -f ${K8S_MANIFEST_DIR}/namespace.yaml
+            kubectl apply -f ${K8S_MANIFEST_DIR}/deployment.yaml
+            kubectl apply -f ${K8S_MANIFEST_DIR}/service.yaml
+            kubectl apply -f ${K8S_MANIFEST_DIR}/hpa.yaml
+            kubectl apply -f ${K8S_MANIFEST_DIR}/pdb.yaml
+            kubectl apply -f ${SELF_HEALER_DIR}/self-healer-cronjob.yaml
+            kubectl -n demo-app rollout status deploy/nginx-demo --timeout=120s
+          '''
+        }
+      }
+    }
+
+    stage('Post-deploy health check') {
+      steps {
+        echo "Run basic health checks (curl via kubectl or using kubectl get pods) and fail pipeline if unhealthy."
+        // Example: use EKS KUBECONFIG to check pods
+        withCredentials([file(credentialsId: 'eks_kubeconfig', variable: 'EKS_KUBECONFIG')]) {
+          sh '''
+            export KUBECONFIG=$EKS_KUBECONFIG
+            kubectl -n demo-app get pods
+            kubectl -n demo-app get deploy nginx-demo -o wide
+          '''
+        }
+      }
+    }
+  }
+
+  post {
+    always {
+      echo 'Pipeline finished - send status to Slack/email as needed'
+    }
+    failure {
+      echo 'Pipeline failed - you may want to trigger manual remediation' # ;-)
+    }
+  }
+}

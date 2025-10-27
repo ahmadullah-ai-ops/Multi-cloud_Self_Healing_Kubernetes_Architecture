@@ -1,0 +1,10 @@
+aws_region = "us-east-1"
+
+# Azure service principal (example)  # replace with your values
+azure_subscription_id = "SUBSCRIPTION_ID"
+azure_tenant_id       = "TENANT_ID"
+azure_client_id       = "CLIENT_ID"
+azure_client_secret   = "CLIENT_SECRET"
+
+cluster_name_prefix = "mcsh" # multi-cloud-self-healing
+azure_location = "eastus"
